@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, Condvar};
 use std::thread;
 use std::collections::VecDeque;
 
-fn producer(v1: Arc<Mutex<Vec<i32>>>, v2: Arc<Mutex<Vec<i32>>>, buffer: Arc<Mutex<Buffer>>, cond_var: Arc<(Mutex<bool>, Condvar)>) {
+fn producer(v1: Arc<Mutex<Vec<i32>>>, v2: Arc<Mutex<Vec<i32>>>, buffer: Arc<Mutex<Buffer>>, cond_var: Arc<(Mutex<i32>, Condvar)>) {
     let mut i: usize = 0;
     let guard = v1.lock().unwrap();
     let v_size: usize = guard.len();
@@ -23,15 +23,12 @@ fn producer(v1: Arc<Mutex<Vec<i32>>>, v2: Arc<Mutex<Vec<i32>>>, buffer: Arc<Mute
 
         let product = a * b;
 
-        // let buffer_guard = buffer.lock().unwrap();
-        // while buffer_guard.cap <= buffer_guard.contents.len() {
-        //     // drop(buffer_guard);
-        // }
         let mut buffer_guard = buffer.lock().unwrap();
         buffer_guard.contents.push_back(product);
+        drop(buffer_guard);
 
         let mut guard = cond_var.0.lock().unwrap();
-        *guard = true;
+        *guard += 1;
         cond_var.1.notify_one();
         drop(guard);
 
@@ -39,14 +36,16 @@ fn producer(v1: Arc<Mutex<Vec<i32>>>, v2: Arc<Mutex<Vec<i32>>>, buffer: Arc<Mute
     }
 }
 
-fn consumer(v_size: usize, buffer: Arc<Mutex<Buffer>>, cond_var: Arc<(Mutex<bool>, Condvar)>) -> i32 {
+fn consumer(v_size: usize, buffer: Arc<Mutex<Buffer>>, cond_var: Arc<(Mutex<i32>, Condvar)>) -> i32 {
     let mut scalar_product: i32 = 0;
     let mut no_of_operations: usize = 0;
     while no_of_operations < v_size {
-        let mut started = cond_var.0.lock().unwrap();
-        while !*started {
-            started = cond_var.1.wait(started).unwrap();
+        let mut received = cond_var.0.lock().unwrap();
+        while *received == 0 {
+            received = cond_var.1.wait(received).unwrap();
         }
+        *received -= 1;
+        drop(received);
 
         let mut guard = buffer.lock().unwrap();
         let product = guard.contents.pop_front().unwrap();
@@ -58,12 +57,11 @@ fn consumer(v_size: usize, buffer: Arc<Mutex<Buffer>>, cond_var: Arc<(Mutex<bool
 }
 
 fn main() {
-    // let size: usize = generate_size();
-    let size: usize = 2;
+    let size: usize = generate_size();
     let v1: Arc<Mutex<Vec<i32>>> = Arc::new(Mutex::new(generate_vector(size)));
     let v2: Arc<Mutex<Vec<i32>>> = Arc::new(Mutex::new(generate_vector(size)));
-    let buffer: Arc<Mutex<Buffer>> = Arc::new(Mutex::new(Buffer{cap: 25, contents: VecDeque::new()}));
-    let cond_var: Arc<(Mutex<bool>, Condvar)> = Arc::new((Mutex::new(false), Condvar::new()));
+    let buffer: Arc<Mutex<Buffer>> = Arc::new(Mutex::new(Buffer{contents: VecDeque::new()}));
+    let cond_var: Arc<(Mutex<i32>, Condvar)> = Arc::new((Mutex::new(0), Condvar::new()));
 
     println!("your vector #1: {:?}", v1.lock().unwrap());
     println!("your vector #2: {:?}", v2.lock().unwrap());
