@@ -1,4 +1,6 @@
+use std::collections::VecDeque;
+
 pub struct Buffer {
     pub cap: usize,
-    pub contents: Vec<i32>
+    pub contents: VecDeque<i32>
 }
